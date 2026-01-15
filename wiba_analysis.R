@@ -200,122 +200,130 @@ df <- as.data.frame(results)
 df$Alternative <- paste0("S", seq(1, n_samples))
 
 # --- PREPARACIÓN DE DATOS ---
-df_plot <- df %>%
-  mutate( Type = 
-    case_when(
-      amplitude < middle_width & s_middle < middle_s_middle ~ "Certain weak",
-      amplitude > middle_width & s_middle < middle_s_middle ~ "Uncertain weak",
-      amplitude < middle_width & s_middle > middle_s_middle ~ "Certain strong",
-      amplitude > middle_width & s_middle > middle_s_middle ~ "Uncertain strong"
-    )
+df_plot <- df %>% mutate(
+    Type = "Sampled cases"
   ) %>%
   mutate(ShortName = Alternative) %>%
-  bind_rows(df_case)
+  bind_rows(df_case %>% mutate(Type = "Defined cases"))
 
-
-x_min <- min(df_plot$s_middle)
-x_max <- max(df_plot$s_middle)
-y_min <- min(df_plot$amplitude)
-y_max <- max(df_plot$amplitude)
-
-# --- VISUALIZACIÓN ---
-p <- ggplot(df_plot, aes(x = s_middle, y = amplitude)) +
+# --- GRÁFICO 2: NUBE DE PUNTOS ---
+plot_performance_landscape <- function(
+    df_plot,
+    x_var = c("s_middle", "s_minus", "s_plus"),
+    title_prefix = "Performance landscape"
+) {
   
- 
-  geom_point(
-    data = subset(df_plot, Type == "Uncertain weak"),
-    size = 2,
-    alpha = 0.2,
-    color = "#648FFF",
-    stroke = 0,
-    show.legend = TRUE
-  ) +
+  x_var <- match.arg(x_var)
   
-  geom_point(
-    data = subset(df_plot, Type == "Certain weak"),
-    size = 2,
-    alpha = 0.2,
-    color = "#785EF0",
-    stroke = 0,
-    show.legend = TRUE
-  ) +
-  geom_point(
-    data = subset(df_plot, Type == "Certain strong"),
-    size = 2,
-    alpha = 0.2,
-    color = "#DC267F",
-    stroke = 0,
-    show.legend = TRUE
-  ) +
-  geom_point(
-    data = subset(df_plot, Type == "Uncertain strong"),
-    size = 2,
-    alpha = 0.2,
-    color = "#FE6100",
-    stroke = 0,
-    show.legend = TRUE
-  ) +
+  # --- Referencias ---
+  middle_x <- mean(range(df_plot[[x_var]]))
+  middle_width <- mean(range(df_plot$amplitude))
   
+  x_min <- min(df_plot[[x_var]])
+  x_max <- max(df_plot[[x_var]])
+  y_min <- min(df_plot$amplitude)
+  y_max <- max(df_plot$amplitude)
   
-  
-  # --- LÍNEAS DIVISORIAS DE LOS CUADRANTES ---
-  geom_vline(xintercept = middle_s_middle, linetype = "dashed", color = "black", linewidth = 0.5) +
-  geom_hline(yintercept = middle_width, linetype = "dashed", color = "black", linewidth = 0.5) +
-  
-  # --- ETIQUETAS DE CUADRANTES (geom_label con fondo blanco) ---
-  annotate("text", x = x_min + 1, y = y_min + 0.8,
-           label = "Certain Weak", color = "black", size = 4, fontface = "bold") +
-  annotate("text", x = x_max - 1, y = y_min + 0.8,
-           label = "Certain Strong", color = "black", size = 4, fontface = "bold") +
-  annotate("text", x = x_min + 1, y = y_max - 0.8,
-           label = "Uncertain Weak", color = "black", size = 4, fontface = "bold") +
-  annotate("text", x = x_max - 1, y = y_max - 0.8,
-           label = "Uncertain Strong", color = "black", size = 4, fontface = "bold") +
-  
-  
-  # puntos destacados (casos definidos)
-  geom_point(
-    data = subset(df_plot, Type == "Defined cases"),
-    shape = 21,
-    size = 7,
-    fill = "#FFE36C",
-    color = "black",
-    stroke = 0.6,
-    show.legend = FALSE
-  ) +
-  
-  # etiquetas de los casos teóricos
-  geom_text(
-    data = subset(df_plot, Type == "Defined cases"),
-    aes(label = ShortName),
-    vjust = 0.5,
-    size = 3,
-    color = "black",
-    fontface = "bold"
-  ) +
-  
-  # estética general
-  theme_clean(base_size = 13) +
-  labs(
-    title = "b) Performance landscape",
-    x = TeX(r"( Middle score $(\bar{s})$ )") ,
-    y = TeX(r"( Interval width $(\bf{\Alpha})$ )")
-  ) +
-  coord_cartesian(expand = TRUE) + 
-  theme(
-    plot.background = element_blank(),
-    plot.title = element_text(hjust = 0.5, size = 13)
+  # --- Etiquetas ---
+  x_label <- switch(
+    x_var,
+    "s_middle" = TeX(r"( Middle score $(\bar{s})$ )"),
+    "s_minus"  = TeX(r"( Conservative score $(s^-)$ )"),
+    "s_plus"   = TeX(r"( Optimistic score $(s^+)$ )")
   )
+  
+  plot_title <- paste0(
+    title_prefix, " (",
+    ifelse(x_var == "s_middle", "neutral",
+           ifelse(x_var == "s_minus", "conservative", "optimistic")),
+    " view)"
+  )
+  
+  # --- Clasificación (Defined cases primero) ---
+  df_plot2 <- df_plot %>%
+    mutate(
+      Type_dyn = case_when(
+        Type == "Defined cases" ~ "Defined cases",
+        amplitude < middle_width & .data[[x_var]] < middle_x ~ "Certain weak",
+        amplitude > middle_width & .data[[x_var]] < middle_x ~ "Uncertain weak",
+        amplitude < middle_width & .data[[x_var]] > middle_x ~ "Certain strong",
+        amplitude > middle_width & .data[[x_var]] > middle_x ~ "Uncertain strong"
+      )
+    )
+  
+  # --- Gráfico ---
+  ggplot(df_plot2, aes(x = .data[[x_var]], y = amplitude)) +
+    
+    geom_point(
+      data = dplyr::filter(df_plot2, Type_dyn == "Uncertain weak"),
+      size = 2, alpha = 0.2, color = "#648FFF"
+    ) +
+    geom_point(
+      data = dplyr::filter(df_plot2, Type_dyn == "Certain weak"),
+      size = 2, alpha = 0.2, color = "#785EF0"
+    ) +
+    geom_point(
+      data = dplyr::filter(df_plot2, Type_dyn == "Certain strong"),
+      size = 2, alpha = 0.2, color = "#DC267F"
+    ) +
+    geom_point(
+      data = dplyr::filter(df_plot2, Type_dyn == "Uncertain strong"),
+      size = 2, alpha = 0.2, color = "#FE6100"
+    ) +
+    
+    # Líneas divisorias
+    geom_vline(xintercept = middle_x, linetype = "dashed", linewidth = 0.5) +
+    geom_hline(yintercept = middle_width, linetype = "dashed", linewidth = 0.5) +
+    
+    # Cuadrantes
+    annotate("text", x = x_min + 0.1*(x_max-x_min), y = y_min + 0.1*(y_max-y_min),
+             label = "Certain Weak", fontface = "bold") +
+    annotate("text", x = x_max - 0.1*(x_max-x_min), y = y_min + 0.1*(y_max-y_min),
+             label = "Certain Strong", fontface = "bold") +
+    annotate("text", x = x_min + 0.1*(x_max-x_min), y = y_max - 0.1*(y_max-y_min),
+             label = "Uncertain Weak", fontface = "bold") +
+    annotate("text", x = x_max - 0.1*(x_max-x_min), y = y_max - 0.1*(y_max-y_min),
+             label = "Uncertain Strong", fontface = "bold") +
+    
+    # --- Casos definidos (siempre visibles) ---
+    geom_point(
+      data = dplyr::filter(df_plot2, Type_dyn == "Defined cases"),
+      shape = 21, size = 7,
+      fill = "#FFE36C", color = "black", stroke = 0.6
+    ) +
+    geom_text(
+      data = dplyr::filter(df_plot2, Type_dyn == "Defined cases"),
+      aes(label = ShortName),
+      fontface = "bold", size = 3
+    ) +
+    
+    theme_clean(base_size = 13) +
+    labs(
+      title = plot_title,
+      x = x_label,
+      y = TeX(r"( Interval width $(\bf{\Delta I})$ )")
+    ) +
+    theme(
+      plot.title = element_text(hjust = 0.5)
+    )
+}
 
-print(p)
-
-ggsave(filename = "landscape.pdf", plot=p, width = 6, height = 5)
-
+p_middle <- plot_performance_landscape(df_plot, "s_middle")
+p_minus  <- plot_performance_landscape(df_plot, "s_minus")
+p_plus   <- plot_performance_landscape(df_plot, "s_plus")
 
 library(patchwork)
 
-p_all <- p1 / p
+p_all <- p1 / p_middle
 
 ggsave(filename = "all.pdf", plot=p_all, width = 7, height = 8)
 
 
+p_performances <- p_middle / p_minus / p_plus + 
+  plot_layout(nrow = 3) +
+  plot_annotation(
+    title = "Performance landscapes from different perspectives",
+    theme = theme(plot.title = element_text(hjust = 0.5, size=14))
+  )
+
+ggsave(filename = "performance_landscapes.pdf", plot=p_performances, width = 8, height = 14)
